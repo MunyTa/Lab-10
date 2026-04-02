@@ -1,10 +1,11 @@
 module github.com/MunyTa/Lab-10/go-gateway
 
-go 1.26.1
+go 1.25.0
 
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/time v0.15.0
 )
 
 require (
