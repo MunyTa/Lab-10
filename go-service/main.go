@@ -2,53 +2,37 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/MunyTa/Lab-10/go-service/middleware"
+	ws "github.com/MunyTa/Lab-10/go-service/websocket"
 	"github.com/gin-gonic/gin"
-
-	// Swagger imports
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-
-	// Документация (будет сгенерирована)
-	_ "github.com/MunyTa/Lab-10/go-service/docs"
+	"github.com/gorilla/websocket"
 )
 
-// @title           Go Service API
-// @version         1.0
-// @description     Микросервис на Go (Gin) для управления пользователями
-// @termsOfService  http://swagger.io/terms/
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
 
-// @contact.name   API Support
-// @contact.email  support@lab10.com
+var chatHub = ws.NewHub()
 
-// @license.name  MIT
-// @license.url   https://opensource.org/licenses/MIT
-
-// @host      localhost:8080
-// @BasePath  /
-
-// @schemes   http
 func main() {
+	// Запускаем WebSocket hub
+	go chatHub.Run()
+
 	gin.SetMode(gin.DebugMode)
 
 	router := gin.New()
 	router.Use(middleware.LoggingMiddleware())
 	router.Use(gin.Recovery())
 
-	// Swagger documentation endpoint
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	// @Summary     Health check
-	// @Description Проверка работоспособности сервиса
-	// @Tags        health
-	// @Produce     json
-	// @Success     200 {object} map[string]string "status ok"
-	// @Router      /health [get]
+	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "ok",
@@ -56,14 +40,7 @@ func main() {
 		})
 	})
 
-	// @Summary     Get user by ID
-	// @Description Возвращает пользователя по указанному ID
-	// @Tags        users
-	// @Produce     json
-	// @Param       id   path      string true "User ID"
-	// @Success     200  {object} map[string]string "user data"
-	// @Failure     404  {object} map[string]string "user not found"
-	// @Router      /users/{id} [get]
+	// GET user
 	router.GET("/users/:id", func(c *gin.Context) {
 		id := c.Param("id")
 		c.JSON(200, gin.H{
@@ -72,15 +49,7 @@ func main() {
 		})
 	})
 
-	// @Summary     Create user
-	// @Description Создаёт нового пользователя
-	// @Tags        users
-	// @Accept      json
-	// @Produce     json
-	// @Param       request body     map[string]string true "User data"
-	// @Success     201    {object} map[string]string "created user"
-	// @Failure     400    {object} map[string]string "bad request"
-	// @Router      /users [post]
+	// POST user
 	router.POST("/users", func(c *gin.Context) {
 		var user struct {
 			Name string `json:"name" binding:"required"`
@@ -95,6 +64,25 @@ func main() {
 		})
 	})
 
+	// WebSocket chat endpoint
+	router.GET("/ws/chat", func(c *gin.Context) {
+		room := c.Query("room")
+		user := c.Query("user")
+
+		if room == "" || user == "" {
+			c.JSON(400, gin.H{"error": "room and user parameters required"})
+			return
+		}
+
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			log.Printf("WebSocket upgrade error: %v", err)
+			return
+		}
+
+		ws.HandleWebSocket(chatHub, conn, room, user)
+	})
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -103,7 +91,7 @@ func main() {
 	// Запуск сервера
 	go func() {
 		log.Printf("Go service starting on port %s", port)
-		log.Printf("Swagger UI available at http://localhost:%s/swagger/index.html", port)
+		log.Printf("WebSocket chat available at ws://localhost:%s/ws/chat?room=test&user=alice", port)
 		if err := router.Run(":" + port); err != nil {
 			log.Fatalf("Failed to start server: %v", err)
 		}
