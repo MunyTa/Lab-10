@@ -33,3 +33,14 @@ cd go-gateway
 export GO_SERVICE_URL=http://localhost:8080
 export PY_SERVICE_URL=http://localhost:8000
 go run main.go
+
+# Тесты Go middleware
+cd go-service
+go test ./middleware/ -v
+
+# Тесты FastAPI
+cd py-service
+pytest tests/ -v
+
+# Интеграционные тесты WebSocket
+pytest tests/test_websocket_integration.py -v
