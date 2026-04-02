@@ -1,0 +1,17 @@
+basePath: /
+host: localhost:8080
+info:
+  contact:
+    email: support@lab10.com
+    name: API Support
+  description: Микросервис на Go (Gin) для управления пользователями
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Go Service API
+  version: "1.0"
+paths: {}
+schemes:
+- http
+swagger: "2.0"
