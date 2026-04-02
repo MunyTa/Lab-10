@@ -22,11 +22,7 @@ func TestRouting_GoService(t *testing.T) {
 	}))
 	defer mockGo.Close()
 
-	// Создаем мок Python сервиса
-	mockPy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	}))
+	mockPy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer mockPy.Close()
 
 	router := setupRouter(mockGo.URL, mockPy.URL, 10, 20)
@@ -41,6 +37,7 @@ func TestRouting_GoService(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 	assert.Equal(t, "123", response["id"])
+	assert.Equal(t, "Test User", response["name"])
 }
 
 func TestRouting_PyService(t *testing.T) {
@@ -63,9 +60,73 @@ func TestRouting_PyService(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "123", response["id"])
+	assert.Equal(t, "Python User", response["name"])
 }
 
-func TestRouting_404(t *testing.T) {
+func TestRateLimiting_ExceedsLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockGo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockGo.Close()
+
+	mockPy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer mockPy.Close()
+
+	// Лимит: 2 запроса в секунду, burst 3
+	router := setupRouter(mockGo.URL, mockPy.URL, 2, 3)
+
+	successCount := 0
+	limitCount := 0
+
+	// Делаем 10 быстрых запросов подряд
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest("GET", "/go/health", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code == http.StatusOK {
+			successCount++
+		} else if w.Code == http.StatusTooManyRequests {
+			limitCount++
+		}
+	}
+
+	assert.Greater(t, limitCount, 0, "Должны быть запросы, отклоненные rate limiter'ом")
+	assert.LessOrEqual(t, successCount, 5, "Не более 5 успешных запросов (с учетом burst)")
+}
+
+func TestGatewayHealth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockGo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer mockGo.Close()
+
+	mockPy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer mockPy.Close()
+
+	router := setupRouter(mockGo.URL, mockPy.URL, 10, 20)
+
+	req := httptest.NewRequest("GET", "/gateway/health", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "healthy", response["status"])
+	assert.Equal(t, "api-gateway", response["service"])
+}
+
+func TestNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockGo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -81,53 +142,4 @@ func TestRouting_404(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestRateLimiting_ExceedsLimit(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	mockGo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer mockGo.Close()
-
-	mockPy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer mockPy.Close()
-
-	router := setupRouter(mockGo.URL, mockPy.URL, 2, 3) // Лимит: 2 запроса в секунду
-
-	// Делаем 5 запросов подряд
-	limitCount := 0
-
-	for i := 0; i < 5; i++ {
-		req := httptest.NewRequest("GET", "/go/test", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		if w.Code == http.StatusTooManyRequests {
-			limitCount++
-		}
-	}
-
-	assert.Greater(t, limitCount, 0, "Должны быть запросы, отклоненные rate limiter'ом")
-}
-
-func TestGateway_LoggingMiddleware(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	mockGo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer mockGo.Close()
-
-	mockPy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer mockPy.Close()
-
-	router := setupRouter(mockGo.URL, mockPy.URL, 10, 20)
-
-	req := httptest.NewRequest("GET", "/go/health", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
 }
