@@ -12,7 +12,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-GO_SERVICE_URL = os.getenv("GO_SERVICE_URL", "http://localhost:8080")
+GO_SERVICE_URL = os.getenv("GO_SERVICE_URL")
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "3.0"))
 
 # Pydantic модели для документации
